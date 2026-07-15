@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: luxrestore-ai
+Version: 0.1.0
+Summary: LuxRestore-AI Project
+Requires-Python: >=3.10
+Requires-Dist: fastapi>=0.100.0
+Requires-Dist: uvicorn[standard]>=0.22.0
+Requires-Dist: pydantic-settings>=2.0.0
+Provides-Extra: dev
+Requires-Dist: pytest; extra == "dev"
+Requires-Dist: httpx; extra == "dev"
+Requires-Dist: black; extra == "dev"
+Requires-Dist: ruff; extra == "dev"
