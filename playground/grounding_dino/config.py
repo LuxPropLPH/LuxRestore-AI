@@ -8,10 +8,11 @@ OUTPUT_DIR = BASE_DIR / "output"
 CACHE_DIR = BASE_DIR / "weights" / "grounding_dino"
 
 # GroundingDINO parameters
-MODEL_ID = "IDEA-Research/groundingdino-tiny"
+MODEL_ID = "IDEA-Research/grounding-dino-tiny"
 CONFIDENCE_THRESHOLD = float(os.getenv("CONF_THRESHOLD", "0.25"))
-DEVICE = os.getenv("DEVICE", "cpu")
-PROMPT_TEXT = os.getenv("PROMPT_TEXT", "watermark")
+SECONDARY_DETECTION_THRESHOLD = float(os.getenv("SECONDARY_DETECTION_THRESHOLD", "0.30"))
+DEVICE = os.getenv("DEVICE", "auto")
+PROMPT_TEXT = "gold logo. red text. small watermark."
 
 # Ensure directories exist
 VALIDATION_DIR.mkdir(parents=True, exist_ok=True)

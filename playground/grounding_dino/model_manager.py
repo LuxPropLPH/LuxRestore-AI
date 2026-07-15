@@ -6,6 +6,16 @@ logger = logging.getLogger("grounding_dino_playground.model_manager")
 
 class ModelManager:
     """Manages local model weights and configurations."""
+
+    REQUIRED_FILES = [
+        "config.json",
+        "preprocessor_config.json",
+        "tokenizer_config.json",
+        "tokenizer.json",
+        "vocab.txt",
+        "special_tokens_map.json",
+        "added_tokens.json",
+    ]
     
     def __init__(self, cache_dir: Path, model_id: str):
         self.cache_dir = cache_dir
@@ -18,16 +28,13 @@ class ModelManager:
         if not self.cache_dir.exists():
             return [
                 "weights/grounding_dino directory",
-                "config.json",
-                "preprocessor_config.json",
+                *self.REQUIRED_FILES,
                 "model.safetensors or pytorch_model.bin",
             ]
 
-        if not self._has_file("config.json"):
-            missing.append("config.json")
-
-        if not self._has_file("preprocessor_config.json"):
-            missing.append("preprocessor_config.json")
+        for filename in self.REQUIRED_FILES:
+            if not self._has_file(filename):
+                missing.append(filename)
 
         has_safetensors = any(self.cache_dir.glob("*.safetensors")) or any(
             self.cache_dir.glob("**/*.safetensors")
@@ -57,9 +64,14 @@ Missing required files:
 {missing_list}
 
 To run this playground script, please manually set up the files:
-1. Download the config and weights for '{self.model_id}' from Hugging Face:
-   - https://huggingface.co/IDEA-Research/groundingdino-tiny/tree/main
-2. Save 'config.json', 'preprocessor_config.json', and 'model.safetensors' (or 'pytorch_model.bin') under:
+Hugging Face model:
+   {self.model_id}
+
+Download instructions:
+1. Open:
+   https://huggingface.co/{self.model_id}/tree/main
+2. Download all required files listed above.
+3. Save them directly under:
    {self.cache_dir.resolve()}
             """
             raise FileNotFoundError(instructions)

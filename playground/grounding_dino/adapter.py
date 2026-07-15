@@ -31,6 +31,7 @@ class HFTransformersAdapter(GroundingDINOAdapter):
         self.processor = AutoProcessor.from_pretrained(model_path, local_files_only=True)
         self.model = AutoModelForZeroShotObjectDetection.from_pretrained(model_path, local_files_only=True)
         self.model.to(self.device)
+        self.model.eval()
 
     def detect(self, image: Image.Image, prompt: str, threshold: float) -> List[Dict[str, Any]]:
         import torch
@@ -44,7 +45,7 @@ class HFTransformersAdapter(GroundingDINOAdapter):
         results = self.processor.post_process_grounded_object_detection(
             outputs,
             inputs.input_ids,
-            box_threshold=threshold,
+            threshold=threshold,
             text_threshold=threshold,
             target_sizes=[image.size[::-1]]
         )

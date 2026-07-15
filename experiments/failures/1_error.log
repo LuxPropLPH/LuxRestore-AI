@@ -1,0 +1,3 @@
+Timestamp: 2026-07-15T11:30:45.662599
+Image: 1.jpg
+Error: Prompt: watermark | Error: GroundingDinoProcessor.post_process_grounded_object_detection() got an unexpected keyword argument 'box_threshold'. Did you mean 'text_threshold'?

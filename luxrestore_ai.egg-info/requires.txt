@@ -1,9 +1,0 @@
-fastapi>=0.100.0
-uvicorn[standard]>=0.22.0
-pydantic-settings>=2.0.0
-
-[dev]
-pytest
-httpx
-black
-ruff

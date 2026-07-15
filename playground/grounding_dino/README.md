@@ -30,10 +30,26 @@ Run the validation suite against all images in `validation/` from the repository
 python playground/grounding_dino/run.py
 ```
 
+Run one image:
+
+```bash
+python playground/grounding_dino/run.py --image validation/image-01.webp
+```
+
 This will:
 
 1. Load all supported images (JPEG, PNG, WEBP) from `validation/`.
 2. Use local GroundingDINO model files from `weights/grounding_dino`.
 3. Compute predictions using prompt `"watermark"`.
-4. Output results to `output/` with bounding box overlays.
-5. Create a report in `experiments/experiment_001.md`.
+4. Output each image run to `output/<image_name>/`.
+
+Each output folder contains:
+
+- `original.jpg`
+- `detections.jpg`
+- `detections.json`
+- `crop_001.jpg` when at least one detection is found
+- `experiment.txt`
+
+By default, the runner uses CUDA when available and falls back to CPU. Override
+with `DEVICE=cpu` or `DEVICE=cuda`.

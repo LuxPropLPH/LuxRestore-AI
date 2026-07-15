@@ -6,8 +6,9 @@ Run from the repository root:
 
 import time
 import shutil
+import argparse
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List
 from datetime import datetime
 import sys
 import importlib
@@ -21,11 +22,25 @@ from playground.grounding_dino.utils import setup_logger
 from playground.grounding_dino import config
 from playground.grounding_dino.loader import ImageLoader
 from playground.grounding_dino.model_manager import ModelManager
+from playground.grounding_dino.postprocess import (
+    filter_isolated_detections,
+    finalize_detections,
+    merge_close_detections,
+)
 
 
 logger = setup_logger()
 
-PROMPTS = ["watermark"]
+PROMPT = config.PROMPT_TEXT
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Run GroundingDINO watermark validation.")
+    parser.add_argument(
+        "--image",
+        type=Path,
+        help="Optional path to one validation image. If omitted, every validation image is processed.",
+    )
+    return parser.parse_args()
 
 def ensure_runtime_dependencies() -> None:
     """Fail clearly if the GroundingDINO runtime dependencies are unavailable."""
@@ -43,62 +58,35 @@ def ensure_runtime_dependencies() -> None:
             "Install them with: pip install -r playground/requirements.txt"
         )
 
-def write_experiment_report(
-    results: List[Dict[str, Any]],
-    total_time: float,
-    successful_runs: int,
-    failed_runs: int
-) -> Path:
-    """Generate expanded markdown experiment report under experiments/."""
-    experiments_dir = Path("experiments")
-    experiments_dir.mkdir(parents=True, exist_ok=True)
-    report_path = experiments_dir / "experiment_001.md"
-    
-    total_processed = len(results)
-    avg_runtime = (total_time / total_processed * 1000.0) if total_processed > 0 else 0.0
-    
-    confidences = []
-    for r in results:
-        for d in r.get("detections", []):
-            confidences.append(d["score"])
-    avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
-    
-    report_content = f"""# Experiment 001: GroundingDINO Watermark Localization
+def resolve_device() -> str:
+    """Resolve CPU/CUDA execution target from config.DEVICE."""
+    import torch
 
-- **Date**: {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
-- **Model**: {config.MODEL_ID}
-- **Device**: {config.DEVICE}
-- **Confidence Threshold**: {config.CONFIDENCE_THRESHOLD}
-- **Prompts Tested**: {PROMPTS}
+    requested_device = config.DEVICE.lower()
+    if requested_device == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
 
-## Run Summary
+    if requested_device == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("DEVICE=cuda was requested, but CUDA is not available.")
 
-- **Total Images & Prompts Checked**: {total_processed}
-- **Successes**: {successful_runs}
-- **Failures**: {failed_runs}
-- **Average Runtime per Image/Prompt**: {avg_runtime:.2f} ms
-- **Average Detection Confidence**: {avg_confidence:.2f}
+    if requested_device not in {"cpu", "cuda"}:
+        raise RuntimeError(
+            f"Unsupported DEVICE value '{config.DEVICE}'. Use 'auto', 'cpu', or 'cuda'."
+        )
 
-## Processed Images Log
+    return requested_device
 
-| Image Name | Prompt | Detection Count | Max Confidence | Latency (ms) | Status |
-|------------|--------|-----------------|----------------|--------------|--------|
-"""
-    for r in results:
-        max_conf = max([d["score"] for d in r["detections"]]) if r["detections"] else 0.0
-        report_content += f"| {r['name']} | {r['prompt']} | {len(r['detections'])} | {max_conf:.4f} | {r['latency']:.1f} | {r['status']} |\n"
-        
-    report_content += f"""
-## Observations & Key Findings
-1. Decoupled using GroundingDINOAdapter pattern.
-2. Handled model files locally using ModelManager.
-3. Successfully run multi-prompt evaluations.
-"""
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write(report_content)
-        
-    logger.info(f"Generated experiment report at: {report_path}")
-    return report_path
+def select_images(loader: ImageLoader, image_path: Path | None) -> List[Path]:
+    if image_path is None:
+        return loader.get_images()
+
+    resolved_path = image_path if image_path.is_absolute() else config.BASE_DIR / image_path
+    if not resolved_path.exists():
+        raise FileNotFoundError(f"Image not found: {resolved_path}")
+    if resolved_path.suffix.lower() not in loader.supported_extensions:
+        supported = ", ".join(sorted(loader.supported_extensions))
+        raise ValueError(f"Unsupported image extension for {resolved_path}. Supported: {supported}")
+    return [resolved_path]
 
 def handle_failure(img_path: Path, error_message: str) -> None:
     """Save failed images/logs to experiments/failures/ directory."""
@@ -119,10 +107,15 @@ def handle_failure(img_path: Path, error_message: str) -> None:
     logger.warning(f"Saved failure dump for {img_path.name} to {failures_dir}")
 
 def main():
+    args = parse_args()
     logger.info("Initializing GroundingDINO technology validation...")
     
     loader = ImageLoader(config.VALIDATION_DIR)
-    images = loader.get_images()
+    try:
+        images = select_images(loader, args.image)
+    except (FileNotFoundError, ValueError) as e:
+        logger.error(str(e))
+        sys.exit(1)
     
     if not images:
         logger.error(
@@ -145,6 +138,13 @@ def main():
         logger.error(str(e))
         sys.exit(1)
 
+    try:
+        device = resolve_device()
+    except RuntimeError as e:
+        logger.error(str(e))
+        sys.exit(1)
+    logger.info(f"Using device: {device}")
+
     from playground.grounding_dino.adapter import HFTransformersAdapter
     from playground.grounding_dino.locator import GroundingDINOLocator
     from playground.grounding_dino.visualizer import ImageVisualizer
@@ -153,7 +153,7 @@ def main():
     locator = GroundingDINOLocator(
         adapter=adapter,
         model_path=local_model_path,
-        device=config.DEVICE
+        device=device
     )
     
     try:
@@ -164,52 +164,73 @@ def main():
 
     visualizer = ImageVisualizer(config.OUTPUT_DIR)
     
-    results = []
-    total_time = 0.0
     successes = 0
     failures = 0
     
     for img_path in images:
-        for prompt in PROMPTS:
-            logger.info(f"Evaluating Image: {img_path.name} with Prompt: '{prompt}'")
-            t_start = time.time()
-            status = "Success"
-            detections = []
-            
-            try:
+        logger.info(f"Evaluating Image: {img_path.name} with Prompt: '{PROMPT}'")
+        t_start = time.time()
+        status = "Success"
+        failure_error = None
+        raw_detections = []
+        filtered_detections = []
+        merged_detections = []
+        final_detections = []
+        pil_img = None
+
+        try:
+            pil_img = loader.load_image(img_path)
+            raw_detections = locator.locate(
+                pil_img,
+                prompt=PROMPT,
+                threshold=config.CONFIDENCE_THRESHOLD
+            )
+            filtered_detections = filter_isolated_detections(
+                raw_detections,
+                secondary_confidence_threshold=config.SECONDARY_DETECTION_THRESHOLD,
+                image_size=pil_img.size,
+            )
+            merged_detections = merge_close_detections(filtered_detections)
+            final_detections = finalize_detections(raw_detections, filtered_detections)
+            successes += 1
+        except Exception as e:
+            err_msg = str(e)
+            logger.error(f"Failed processing {img_path.name} under prompt '{PROMPT}': {err_msg}")
+            status = f"Failed ({type(e).__name__})"
+            failure_error = err_msg
+            failures += 1
+            handle_failure(img_path, f"Prompt: {PROMPT} | Error: {err_msg}")
+
+        elapsed = time.time() - t_start
+        runtime_ms = elapsed * 1000.0
+
+        try:
+            if pil_img is None:
                 pil_img = loader.load_image(img_path)
-                detections = locator.locate(
-                    pil_img,
-                    prompt=prompt,
-                    threshold=config.CONFIDENCE_THRESHOLD
-                )
-                visualizer.draw_detections(
-                    pil_img,
-                    detections,
-                    prompt=prompt,
-                    filename=img_path.stem
-                )
-                successes += 1
-            except Exception as e:
-                err_msg = str(e)
-                logger.error(f"Failed processing {img_path.name} under prompt '{prompt}': {err_msg}")
-                status = f"Failed ({type(e).__name__})"
-                failures += 1
-                handle_failure(img_path, f"Prompt: {prompt} | Error: {err_msg}")
-                
-            elapsed = time.time() - t_start
-            total_time += elapsed
-            
-            results.append({
-                "name": img_path.name,
-                "prompt": prompt,
-                "detections": detections,
-                "latency": elapsed * 1000.0,
-                "status": status
-            })
-            
-    write_experiment_report(results, total_time, successes, failures)
-    logger.info("Validation run completed successfully.")
+            visualizer.draw_detections(
+                pil_img,
+                final_detections,
+                prompt=PROMPT,
+                filename=img_path.stem,
+                runtime_ms=runtime_ms,
+                model_name=config.MODEL_ID,
+                device=device,
+                error=failure_error
+            )
+            visualizer.draw_detection_stages(
+                pil_img,
+                filename=img_path.stem,
+                stages={
+                    "raw": raw_detections,
+                    "filtered": filtered_detections,
+                    "merged": merged_detections,
+                    "final": final_detections,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed writing outputs for {img_path.name}: {e}")
+
+    logger.info(f"Validation run completed. Successes: {successes}, Failures: {failures}")
 
 if __name__ == "__main__":
     main()
