@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import List
-from PIL import Image
 import logging
 
 logger = logging.getLogger("grounding_dino_playground.loader")
@@ -22,8 +21,10 @@ class ImageLoader:
                 images.append(file)
         return sorted(images)
 
-    def load_image(self, path: Path) -> Image.Image:
+    def load_image(self, path: Path) -> "Image.Image":
         """Load an image using Pillow and convert to RGB format."""
+        from PIL import Image
+
         logger.info(f"Loading image from {path}")
         img = Image.open(path)
         return img.convert("RGB")

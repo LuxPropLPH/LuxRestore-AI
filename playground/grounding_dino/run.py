@@ -5,39 +5,43 @@ Run from the repository root:
 """
 
 import time
-import json
 import shutil
 from pathlib import Path
 from typing import List, Dict, Any
 from datetime import datetime
 import sys
+import importlib
 
 # Add the project root to sys.path to allow running as a script
 project_root = Path(__file__).resolve().parent.parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
-try:
-    from PIL import Image
-    import torch
-    import transformers
-except ImportError:
-    print("\n[ERROR] Required dependencies are missing.")
-    print("Please install them inside your active virtual environment:")
-    print("  pip install -r playground/requirements.txt\n")
-    sys.exit(1)
 
 from playground.grounding_dino.utils import setup_logger
 from playground.grounding_dino import config
 from playground.grounding_dino.loader import ImageLoader
 from playground.grounding_dino.model_manager import ModelManager
-from playground.grounding_dino.adapter import HFTransformersAdapter
-from playground.grounding_dino.locator import GroundingDINOLocator
-from playground.grounding_dino.visualizer import ImageVisualizer
 
 
 logger = setup_logger()
 
 PROMPTS = ["watermark"]
+
+def ensure_runtime_dependencies() -> None:
+    """Fail clearly if the GroundingDINO runtime dependencies are unavailable."""
+    missing = []
+    for module_name in ["PIL", "torch", "transformers"]:
+        try:
+            importlib.import_module(module_name)
+        except ImportError:
+            missing.append(module_name)
+
+    if missing:
+        missing_list = ", ".join(missing)
+        raise RuntimeError(
+            f"Missing required playground dependencies: {missing_list}. "
+            "Install them with: pip install -r playground/requirements.txt"
+        )
 
 def write_experiment_report(
     results: List[Dict[str, Any]],
@@ -121,25 +125,29 @@ def main():
     images = loader.get_images()
     
     if not images:
-        mock_img_path = config.VALIDATION_DIR / "sample_watermarked.png"
-        logger.info(f"Creating a placeholder validation image: {mock_img_path}")
-        try:
-            from PIL import Image, ImageDraw
-            img = Image.new("RGB", (256, 256), color="white")
-            draw = ImageDraw.Draw(img)
-            draw.text((80, 120), "WATERMARK", fill="grey")
-            img.save(mock_img_path)
-            images = [mock_img_path]
-        except Exception as e:
-            logger.error(f"Failed to create placeholder image: {e}")
-            return
+        logger.error(
+            "No real validation images found in %s. Add watermarked .jpg, .jpeg, "
+            ".png, or .webp files before running GroundingDINO validation.",
+            config.VALIDATION_DIR.resolve(),
+        )
+        sys.exit(1)
 
     manager = ModelManager(config.CACHE_DIR, config.MODEL_ID)
     try:
         local_model_path = manager.get_local_path()
     except FileNotFoundError as e:
         logger.error(str(e))
-        return
+        sys.exit(1)
+
+    try:
+        ensure_runtime_dependencies()
+    except RuntimeError as e:
+        logger.error(str(e))
+        sys.exit(1)
+
+    from playground.grounding_dino.adapter import HFTransformersAdapter
+    from playground.grounding_dino.locator import GroundingDINOLocator
+    from playground.grounding_dino.visualizer import ImageVisualizer
 
     adapter = HFTransformersAdapter()
     locator = GroundingDINOLocator(
@@ -152,7 +160,7 @@ def main():
         locator.load_model()
     except Exception as e:
         logger.error(f"Error loading GroundingDINO model: {e}")
-        return
+        sys.exit(1)
 
     visualizer = ImageVisualizer(config.OUTPUT_DIR)
     
