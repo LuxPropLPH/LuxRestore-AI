@@ -1,13 +1,21 @@
-import sys
-import os
+"""Canonical GroundingDINO validation entrypoint.
+
+Run from the repository root:
+    python playground/grounding_dino/run.py
+"""
+
 import time
 import json
 import shutil
 from pathlib import Path
 from typing import List, Dict, Any
-import logging
 from datetime import datetime
+import sys
 
+# Add the project root to sys.path to allow running as a script
+project_root = Path(__file__).resolve().parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
 try:
     from PIL import Image
     import torch
@@ -15,7 +23,7 @@ try:
 except ImportError:
     print("\n[ERROR] Required dependencies are missing.")
     print("Please install them inside your active virtual environment:")
-    print("  pip install pillow transformers torch torchvision\n")
+    print("  pip install -r playground/requirements.txt\n")
     sys.exit(1)
 
 from playground.grounding_dino.utils import setup_logger
@@ -29,8 +37,7 @@ from playground.grounding_dino.visualizer import ImageVisualizer
 
 logger = setup_logger()
 
-# Multiple configurable prompts
-PROMPTS = ["watermark", "logo", "text overlay"]
+PROMPTS = ["watermark"]
 
 def write_experiment_report(
     results: List[Dict[str, Any]],
